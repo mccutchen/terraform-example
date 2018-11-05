@@ -1,0 +1,82 @@
+#!/usr/bin/env bash
+
+set -e
+set -u
+set -o pipefail
+
+function log {
+    echo -e 1>&2 "$@"
+}
+
+function die {
+    log "$@"
+    exit 1
+}
+
+function usage {
+    die "Usage: ${0} ENV ACTION"
+}
+
+if [[ $# -lt 2 || $@ =~ "-h" ]]; then
+    usage
+fi
+
+ENV=$1
+shift
+ACTION=$1
+shift
+
+TF_ROOT="$(cd $(dirname "${BASH_SOURCE[0]}") && pwd)"
+ENV_ROOT="$TF_ROOT/envs/$ENV"
+STATE_FILE="$ENV_ROOT/terraform.tfstate"
+VAR_FILE="$ENV_ROOT/terraform.tfvars"
+
+if [[ ! -d "$ENV_ROOT" ]]; then
+    die "Environent '$ENV' not found: $ENV_ROOT"
+fi
+
+if [[ ! -f "$VAR_FILE" ]]; then
+    die "Vars file for env $ENV not found: $VAR_FILE"
+fi
+
+# Change into our working dir, which we'll populate with env-specific
+# configuration before running any terraform commands.
+cd "$TF_ROOT/src"
+
+# Copy the env-specific vars and state file into our working directory, so that
+# terraform picks them up as expected.
+cp "$VAR_FILE" .
+if [[ -f "$STATE_FILE" ]]; then
+    cp "$STATE_FILE" .
+fi
+
+# When this script is done (whether there was an error or it completed
+# successfully), copy the possibly-modified state back into the proper
+# environment and remove all env-specific files from the working directory.
+function cleanup() {
+    if [[ -f terraform.tfstate ]]; then
+        cp terraform.tfstate $ENV_ROOT
+    fi
+    rm -f terraform.tf*
+}
+trap cleanup EXIT
+
+# Make sure our code is properly formatted before we run any terraform
+# commands. If this step fails, either a) configure your text editor to run
+# `terraform fmt` on save b) run `terraform fmt` manually or c) delete this
+# check.
+log 'running `terraform fmt` ...'
+res=$(terraform fmt -write=false)
+if [ -n "$res" ]; then
+    die "terraform fmt failed: \n$res"
+fi
+
+# This is required on first run, and any time a terraform module is changed
+# (e.g. on terraform upgrades or other module changes); should usually be a no-
+# op.
+log 'running `terraform init` ...'
+terraform init
+
+# Finally, run the actual terraform command we've been asked to run!
+log '\nrunning `terraform '$ACTION' '$@'` ...'
+terraform $ACTION $@
