@@ -1,6 +1,6 @@
 # Terraform Example
 
-This repo demonstrates an approach for using [Terraform][https://www.terraform.io/] to manage
+This repo demonstrates an approach for using [Terraform](https://www.terraform.io/) to manage
 AWS resources.
 
 
